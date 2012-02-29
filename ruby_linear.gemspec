@@ -9,11 +9,12 @@ Gem::Specification.new do |s|
   s.email = %q{frederick.cheung@gmail.com}
   s.extensions = ["ext/extconf.rb"]
   s.extra_rdoc_files = ["README"]
-  s.files = ["COPYING", "AUTHORS", "README"]
+  s.files = ["COPYING", "AUTHORS", "README", "Rakefile"]
   s.files += Dir["ext/*.h"]
   s.files += Dir["ext/*.cpp"]
   s.files += Dir["ext/*.c"]
   s.files += Dir["lib/*.rb"]
+  s.files += Dir["spec/**/*"]
   
   s.license = 'MIT'
   s.has_rdoc = false
