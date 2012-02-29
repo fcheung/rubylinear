@@ -1,7 +1,8 @@
 #include "linear.h"
 #include "tron.h"
 #include "ruby.h"
-
+#include <errno.h>
+#include <ctype.h>
 #ifdef __cplusplus
 extern "C" {
 #endif  
@@ -11,13 +12,341 @@ VALUE mRubyLinear;
 VALUE cProblem;
 VALUE cModel;
 
+static void model_free(void *p){
+  struct model * m = (struct model *)p;
+  free_and_destroy_model(&m);
+}
+
+static VALUE model_load_file(VALUE klass, VALUE path){
+  path = rb_str_to_str(path);
+  struct model * model = load_model(rb_string_value_cstr(&path));
+  VALUE tdata = Data_Wrap_Struct(klass, 0, model_free, model);
+  return tdata;
+}
+
+static VALUE model_write_file(VALUE self,VALUE path){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  path = rb_str_to_str(path);
+  save_model(rb_string_value_cstr(&path), model);
+  return self;
+}
+
+static VALUE model_new(VALUE klass, VALUE r_problem, VALUE r_parameter){
+
+  struct model *model = NULL;
+  struct problem *problem;
+  Data_Get_Struct(r_problem, struct problem, problem);
+  struct parameter param;
+  
+  if(!problem->base){
+    rb_raise(rb_eArgError, "problem has been disposed");
+    return Qnil;
+  }
+  param.eps = RFLOAT_VALUE(rb_to_float(rb_funcall(r_parameter, rb_intern("eps"),0)));
+  param.C = RFLOAT_VALUE(rb_to_float(rb_funcall(r_parameter, rb_intern("c"),0)));
+  param.solver_type = FIX2INT(rb_funcall(r_parameter, rb_intern("solver_type"),0));
+
+  VALUE weights = rb_funcall(r_parameter, rb_intern("weights"),0);
+  Check_Type(weights, T_HASH);
+  param.nr_weight = RHASH_SIZE(weights);
+  
+  if(param.nr_weight > 0){
+    param.weight = (double*)calloc(param.nr_weight,sizeof(double));
+    param.weight_label = (int*)calloc(param.nr_weight,sizeof(int));
+  }else{
+    param.weight = NULL;
+    param.weight_label = NULL;
+  }
+
+  VALUE weights_as_array = rb_funcall(rb_funcall(r_parameter, rb_intern("weights"),0), rb_intern("to_a"),0);
+
+  for(long i=0; i < RARRAY_LEN(weights_as_array); i++){
+    VALUE pair = RARRAY_PTR(weights_as_array)[i];
+    VALUE label = RARRAY_PTR(pair)[0];
+    VALUE weight = RARRAY_PTR(pair)[1];
+    
+    param.weight[i] = RFLOAT_VALUE(rb_to_float(weight));
+    param.weight_label[i] = FIX2INT(label);
+  }
+  
+  const char *error_string = check_parameter(problem, &param);
+  if(error_string){
+    rb_raise(rb_eArgError, "%s", error_string);
+    destroy_param(&param);
+    return Qnil;
+  }
+  model = train(problem, &param);
+  VALUE tdata = Data_Wrap_Struct(klass, 0, model_free, model);  
+  destroy_param(&param);
+  return tdata;
+}
+static VALUE model_feature_count(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  return INT2FIX(model->nr_feature);
+}
+
+static VALUE model_class_count(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  return INT2FIX(model->nr_class);
+}
+
+static VALUE model_class_bias(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  return rb_float_new(model->bias);
+}
+
+static VALUE model_destroy(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  free_model_content(model);
+  model->w = NULL;
+  model->label = NULL;
+  return Qnil;
+}
+
+static VALUE model_destroyed(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  return model->w ? Qfalse : Qtrue;
+}
+
+static VALUE model_predict(VALUE self, VALUE data){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  
+  if(!model->w){
+    rb_raise(rb_eArgError, "model has been destroyed");
+    return Qnil;
+  }
+  Check_Type(data, T_HASH);
+  VALUE pairs = rb_funcall(data,rb_intern("to_a"),0);
+  int node_count = RARRAY_LEN(pairs) + (model->bias > 0 ? 2 : 1);
+  struct feature_node * nodes = (struct feature_node *)calloc(node_count, sizeof(struct feature_node));
+  
+  int position = 0;
+  for(int i=0; i < RARRAY_LEN(pairs); i++, position++){
+    VALUE pair = RARRAY_PTR(pairs)[i];
+    VALUE key = RARRAY_PTR(pair)[0];
+    VALUE weight = RARRAY_PTR(pair)[1];
+    
+    nodes[i].index = FIX2INT(key);
+    nodes[i].value = RFLOAT_VALUE(rb_to_float(weight));
+  }
+  if(model->bias > 0){
+    nodes[position].index = model->nr_feature+1;
+    nodes[position].value = model->bias;
+    position++;
+  }
+  /*sentinel value*/
+  nodes[position].index = -1;
+  nodes[position].value = -1;
+  int result = predict(model, nodes); 
+  free(nodes);
+  return INT2FIX(result);
+}
+
+static VALUE model_inspect(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  
+  return rb_sprintf("#<RubyLinear::Model:%p classes:%d features:%d bias:%f>",(void*)self,model->nr_class, model->nr_feature,model->bias);
+}
+
+static VALUE model_labels(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  VALUE result = rb_ary_new();
+  for(int i=0; i < model->nr_class; i++){
+    rb_ary_store(result, i, INT2FIX(model->label[i]));
+  }
+  return result;
+  
+}
+
+
+static VALUE model_weights(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+
+  int n;
+  if(model->bias>=0){
+    n=model->nr_feature+1;
+  }
+  else{
+    n=model->nr_feature;
+  }
+  int w_size = n;
+  int nr_w;
+  if(model->nr_class==2 && model->param.solver_type != MCSVM_CS){
+    nr_w = 1;
+  }
+  else{
+    nr_w = model->nr_class;
+  }
+  
+  int weight_count = w_size*nr_w;
+  
+  VALUE result = rb_ary_new();
+  for(int i=0; i < weight_count; i++){
+    rb_ary_store(result, i, rb_float_new(model->w[i]));
+  }
+  return result;
+}
+
+
+
 static void problem_free(void *p) {
   struct problem * pr = (struct problem*)p;
 
   free(pr->y);
   free(pr->base);
   free(pr);
-}  
+}
+
+void exit_input_error(int line_num)
+{
+  rb_raise(rb_eArgError, "Wrong input format at line %d\n", line_num);
+}
+
+static char *line = NULL;
+static int max_line_len;
+
+static char* readline(FILE *input)
+{
+  int len;
+  
+  if(fgets(line,max_line_len,input) == NULL)
+    return NULL;
+
+  while(strrchr(line,'\n') == NULL)
+  {
+    max_line_len *= 2;
+    line = (char *) realloc(line,max_line_len);
+    len = (int) strlen(line);
+    if(fgets(line+len,max_line_len-len,input) == NULL)
+      break;
+  }
+  return line;
+}
+
+static VALUE problem_load_file(VALUE klass, VALUE path, VALUE bias){
+  path = rb_str_to_str(path);
+  /* lifted from train.c*/
+  int max_index, inst_max_index, i;
+  long int elements, j;
+  FILE *fp = fopen(rb_string_value_cstr(&path),"r");
+  char *endptr;
+  char *idx, *val, *label;
+
+  if(fp == NULL)
+  {
+    rb_sys_fail("can't open input file");
+    return Qnil;
+  }
+
+  struct problem *prob = (struct problem*) calloc(1, sizeof(struct problem));
+  VALUE tdata = Data_Wrap_Struct(klass, 0, problem_free, prob);
+  prob->bias = RFLOAT_VALUE(rb_to_float(bias));
+  prob->l = 0;
+  elements = 0;
+  max_line_len = 1024;
+  line = (char*)calloc(sizeof(char),max_line_len);
+  while(readline(fp)!=NULL)
+  {
+    char *p = strtok(line," \t"); // label
+
+    // features
+    while(1)
+    {
+      p = strtok(NULL," \t");
+      if(p == NULL || *p == '\n') // check '\n' as ' ' may be after the last feature
+        break;
+      elements++;
+    }
+    elements++; // for bias term
+    prob->l++;
+  }
+  rewind(fp);
+
+
+  prob->y = (int*)calloc(sizeof(int),prob->l);
+  prob->x = (struct feature_node **)calloc(sizeof(struct feature_node *),prob->l);
+  prob->base = (struct feature_node *)calloc(sizeof(struct feature_node),elements + prob->l);
+
+  max_index = 0;
+  j=0;
+  for(i=0;i<prob->l;i++)
+  {
+    inst_max_index = 0; // strtol gives 0 if wrong format
+    readline(fp);
+    prob->x[i] = &prob->base[j];
+    label = strtok(line," \t\n");
+    if(label == NULL){ // empty line
+      exit_input_error(i+1);
+      fclose(fp);
+      return Qnil;
+    }
+    prob->y[i] = (int) strtol(label,&endptr,10);
+    if(endptr == label || *endptr != '\0'){
+      exit_input_error(i+1);
+      fclose(fp);
+      return Qnil;
+    }
+    while(1)
+    {
+      idx = strtok(NULL,":");
+      val = strtok(NULL," \t");
+
+      if(val == NULL)
+        break;
+
+      errno = 0;
+      prob->base[j].index = (int) strtol(idx,&endptr,10);
+      if(endptr == idx || errno != 0 || *endptr != '\0' || prob->base[j].index <= inst_max_index){
+        exit_input_error(i+1);
+        fclose(fp);
+        return Qnil;
+      }
+      else
+        inst_max_index = prob->base[j].index;
+
+      errno = 0;
+      prob->base[j].value = strtod(val,&endptr);
+      if(endptr == val || errno != 0 || (*endptr != '\0' && !isspace(*endptr))){
+        exit_input_error(i+1);
+        fclose(fp);
+        return Qnil;
+      }
+
+      ++j;
+    }
+
+    if(inst_max_index > max_index)
+      max_index = inst_max_index;
+
+    if(prob->bias >= 0)
+      prob->base[j++].value = prob->bias;
+
+    prob->base[j++].index = -1;
+  }
+
+  if(prob->bias >= 0)
+  {
+    prob->n=max_index+1;
+    for(i=1;i<prob->l;i++)
+      (prob->x[i]-2)->index = prob->n; 
+    prob->base[j-2].index = prob->n;
+  }
+  else
+    prob->n=max_index;
+
+  fclose(fp);
+  return tdata;
+}
 
 static VALUE problem_new(VALUE klass, VALUE labels, VALUE samples, VALUE bias, VALUE attr_count){
   VALUE argv[4] = {labels, samples,bias,attr_count};
@@ -28,8 +357,27 @@ static VALUE problem_new(VALUE klass, VALUE labels, VALUE samples, VALUE bias, V
   return tdata;
 }
 
+static VALUE problem_destroy(VALUE self){  
+  struct problem *problem;
+  Data_Get_Struct(self, struct problem, problem);
+  free(problem->base);
+  problem->base = NULL;
+  return self;
+}
+
+static VALUE problem_destroyed(VALUE self){  
+  struct problem *problem;
+  Data_Get_Struct(self, struct problem, problem);
+  return problem->base ? Qfalse : Qtrue;
+}
 
 
+static VALUE problem_inspect(VALUE self){
+  struct problem *problem;
+  Data_Get_Struct(self, struct problem, problem);
+  
+  return rb_sprintf("#<RubyLinear::Problem:%p samples:%d features:%d bias:%f>",(void*)self,problem->l, problem->n,problem->bias);
+}
 static VALUE problem_l(VALUE self){
   struct problem *problem;
   Data_Get_Struct(self, struct problem, problem);
@@ -82,19 +430,15 @@ static VALUE problem_init(VALUE self, VALUE labels, VALUE samples, VALUE bias, V
   problem->y = (int*)calloc(sizeof(int), problem->l);
 
   
-  /* copy the y values. At the same time we work out what the number of labels is (which is the maximum observed labels) and how many samples to allocate*/
+  /* copy the y values  and calculate how many samples to allocate*/
   int required_feature_nodes = 0;
   int extra_samples = problem->bias > 0 ? 2 : 1; /*always 1 (the sentinel element, and possibly +1 for bias)*/
   for(int i=0; i<problem->l; i++){
     VALUE hash = RARRAY_PTR(samples)[i];
     problem->y[i] = FIX2INT(RARRAY_PTR(labels)[i]);
-    if(problem->y[i] > problem->l){
-      problem->l = problem->y[i];
-    }
     required_feature_nodes += RHASH_SIZE(hash) + extra_samples; 
   }
   
-  printf("required_feature_nodes is %d\n",required_feature_nodes);
   problem->offset = 0;
   problem->base = (struct feature_node *)calloc(sizeof(struct feature_node), required_feature_nodes);
   problem->x = (struct feature_node **)calloc(sizeof(struct feature_node*), problem->l);
@@ -128,12 +472,32 @@ void Init_rubylinear_native() {
   rb_define_const(mRubyLinear, "L1R_LR", INT2FIX(L1R_LR));
   rb_define_const(mRubyLinear, "L2R_LR_DUAL", INT2FIX(L2R_LR_DUAL));
   
-  cModel = rb_define_class_under(mRubyLinear, "Model", rb_cObject);
   cProblem = rb_define_class_under(mRubyLinear, "Problem", rb_cObject);
   rb_define_singleton_method(cProblem, "new", RUBY_METHOD_FUNC(problem_new), 4);
+  rb_define_singleton_method(cProblem, "load_file", RUBY_METHOD_FUNC(problem_load_file),2);
   rb_define_method(cProblem, "initialize", RUBY_METHOD_FUNC(problem_init), 4);
   rb_define_method(cProblem, "l", RUBY_METHOD_FUNC(problem_l), 0);
   rb_define_method(cProblem, "n", RUBY_METHOD_FUNC(problem_n), 0);
+  rb_define_method(cProblem, "destroy!", RUBY_METHOD_FUNC(problem_destroy), 0);
+  rb_define_method(cProblem, "destroyed?", RUBY_METHOD_FUNC(problem_destroyed), 0);
+  rb_define_method(cProblem, "inspect", RUBY_METHOD_FUNC(problem_inspect), 0);
+
+  cModel = rb_define_class_under(mRubyLinear, "Model", rb_cObject);
+  rb_define_singleton_method(cModel, "load_file", RUBY_METHOD_FUNC(model_load_file), 1);
+  rb_define_singleton_method(cModel, "new", RUBY_METHOD_FUNC(model_new), 2);
+  rb_define_method(cModel, "save", RUBY_METHOD_FUNC(model_write_file), 1);
+  rb_define_method(cModel, "predict", RUBY_METHOD_FUNC(model_predict), 1);
+  rb_define_method(cModel, "destroy!", RUBY_METHOD_FUNC(model_destroy), 0);
+  rb_define_method(cModel, "destroyed?", RUBY_METHOD_FUNC(model_destroyed), 0);
+  rb_define_method(cModel, "inspect", RUBY_METHOD_FUNC(model_inspect), 0);
+  rb_define_method(cModel, "labels", RUBY_METHOD_FUNC(model_labels), 0);
+  rb_define_method(cModel, "weights", RUBY_METHOD_FUNC(model_weights), 0);
+
+  rb_define_method(cModel, "feature_count", RUBY_METHOD_FUNC(model_feature_count), 0);
+  rb_define_method(cModel, "class_count", RUBY_METHOD_FUNC(model_class_count), 0);
+  rb_define_method(cModel, "bias", RUBY_METHOD_FUNC(model_class_bias), 0);
+
+
 }
 
 
