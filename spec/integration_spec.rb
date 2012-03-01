@@ -18,9 +18,8 @@ describe(RubyLinear) do
   end
   
   before(:each) do
-    parameter = RubyLinear::Parameter.new(RubyLinear::L1R_L2LOSS_SVC)
     problem = RubyLinear::Problem.load_file("spec/fixtures/dna.scale.txt",1)
-    @model = RubyLinear::Model.new(problem, parameter)
+    @model = RubyLinear::Model.new(problem, :solver => RubyLinear::L1R_L2LOSS_SVC)
   end
   
   it 'should produce the same output as the command line tools' do    

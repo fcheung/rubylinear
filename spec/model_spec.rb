@@ -26,10 +26,17 @@ describe(RubyLinear::Model) do
   
   describe('new') do
     let(:problem) {RubyLinear::Problem.load_file(File.dirname(__FILE__) + '/fixtures/dna.scale.txt', 1.0)}
-    let(:parameter) {RubyLinear::Parameter.new(RubyLinear::L1R_L2LOSS_SVC)}
     it 'should train the model from the parameters and the problem' do
-      m = RubyLinear::Model.new(problem, parameter)
+      m = RubyLinear::Model.new(problem, :solver => RubyLinear::L1R_L2LOSS_SVC)
       m.predict(test_vector).should == 3
+    end
+    
+    context 'when unknwon options are presented' do
+      it 'should raise argument error' do
+        expect { RubyLinear::Model.new(problem, :solver => RubyLinear::L1R_L2LOSS_SVC, :bogus_option => true) }.to raise_error(ArgumentError)
+        
+      end
+      
     end
   end
 end

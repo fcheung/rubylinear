@@ -32,7 +32,7 @@ static VALUE model_write_file(VALUE self,VALUE path){
   return self;
 }
 
-static VALUE model_new(VALUE klass, VALUE r_problem, VALUE r_parameter){
+static VALUE model_new(VALUE klass, VALUE r_problem, VALUE parameters){
 
   struct model *model = NULL;
   struct problem *problem;
@@ -43,32 +43,48 @@ static VALUE model_new(VALUE klass, VALUE r_problem, VALUE r_parameter){
     rb_raise(rb_eArgError, "problem has been disposed");
     return Qnil;
   }
-  param.eps = RFLOAT_VALUE(rb_to_float(rb_funcall(r_parameter, rb_intern("eps"),0)));
-  param.C = RFLOAT_VALUE(rb_to_float(rb_funcall(r_parameter, rb_intern("c"),0)));
-  param.solver_type = FIX2INT(rb_funcall(r_parameter, rb_intern("solver_type"),0));
-
-  VALUE weights = rb_funcall(r_parameter, rb_intern("weights"),0);
-  Check_Type(weights, T_HASH);
-  param.nr_weight = RHASH_SIZE(weights);
   
-  if(param.nr_weight > 0){
+  rb_funcall(mRubyLinear, rb_intern("validate_options"), 1, parameters);
+  VALUE v;
+  
+  if(!NIL_P(v = rb_hash_aref(parameters, ID2SYM(rb_intern("eps"))))){
+    param.eps = RFLOAT_VALUE(rb_to_float(v));
+  }else{
+    param.eps = 0.01;
+  }
+
+  if(!NIL_P(v = rb_hash_aref(parameters, ID2SYM(rb_intern("c"))))){
+    param.C = RFLOAT_VALUE(rb_to_float(v));
+  }else{
+    param.C = 1;
+  }
+
+  v = rb_hash_aref(parameters, ID2SYM(rb_intern("solver")));
+  param.solver_type = FIX2INT(v);
+
+  if(!NIL_P(v = rb_hash_aref(parameters, ID2SYM(rb_intern("weights"))))){
+    Check_Type(v, T_HASH);
+    param.nr_weight = RHASH_SIZE(v);
     param.weight = (double*)calloc(param.nr_weight,sizeof(double));
     param.weight_label = (int*)calloc(param.nr_weight,sizeof(int));
+
+    VALUE weights_as_array = rb_funcall(v, rb_intern("to_a"),0);
+
+    for(long i=0; i < RARRAY_LEN(weights_as_array); i++){
+      VALUE pair = RARRAY_PTR(weights_as_array)[i];
+      VALUE label = RARRAY_PTR(pair)[0];
+      VALUE weight = RARRAY_PTR(pair)[1];
+
+      param.weight[i] = RFLOAT_VALUE(rb_to_float(weight));
+      param.weight_label[i] = FIX2INT(label);
+    }
+    
   }else{
+    param.nr_weight = 0;
     param.weight = NULL;
     param.weight_label = NULL;
   }
 
-  VALUE weights_as_array = rb_funcall(rb_funcall(r_parameter, rb_intern("weights"),0), rb_intern("to_a"),0);
-
-  for(long i=0; i < RARRAY_LEN(weights_as_array); i++){
-    VALUE pair = RARRAY_PTR(weights_as_array)[i];
-    VALUE label = RARRAY_PTR(pair)[0];
-    VALUE weight = RARRAY_PTR(pair)[1];
-    
-    param.weight[i] = RFLOAT_VALUE(rb_to_float(weight));
-    param.weight_label[i] = FIX2INT(label);
-  }
   
   const char *error_string = check_parameter(problem, &param);
   if(error_string){
@@ -165,6 +181,12 @@ static VALUE model_labels(VALUE self){
   }
   return result;
   
+}
+
+static VALUE model_solver(VALUE self){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  return INT2FIX(model->param.solver_type);
 }
 
 
@@ -565,6 +587,7 @@ void Init_rubylinear_native() {
   rb_define_method(cModel, "destroyed?", RUBY_METHOD_FUNC(model_destroyed), 0);
   rb_define_method(cModel, "inspect", RUBY_METHOD_FUNC(model_inspect), 0);
   rb_define_method(cModel, "labels", RUBY_METHOD_FUNC(model_labels), 0);
+  rb_define_method(cModel, "solver", RUBY_METHOD_FUNC(model_solver), 0);
   rb_define_method(cModel, "weights", RUBY_METHOD_FUNC(model_weights), 0);
 
   rb_define_method(cModel, "feature_count", RUBY_METHOD_FUNC(model_feature_count), 0);
