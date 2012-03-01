@@ -46,6 +46,17 @@ describe(RubyLinear::Problem) do
       @max_feature = 5
     end
     
+    context 'when max feature is inconsistent with the samples' do
+      it 'should raise argument error' do
+        expect {RubyLinear::Problem.new(@labels, @samples, -1, 3)}.to raise_error(ArgumentError, /inconsistent/)
+      end
+    end
+    
+    context 'when samples and labels are of different length' do
+      it 'should raise argument error' do
+        expect {RubyLinear::Problem.new([1,2,3], @samples, -1, @max_feature)}.to raise_error(ArgumentError, /different length/)
+      end
+    end
     context 'when the bias is < 0' do
       it 'should create a new problem' do
         problem = RubyLinear::Problem.new(@labels, @samples, -1, @max_feature)

@@ -443,6 +443,9 @@ static VALUE problem_bias(VALUE self){
 
 
 static void addSample(struct problem * problem, int label, double weight){
+  if(label > problem->n){
+    rb_raise(rb_eArgError, "tried to add sample %d, %f, inconsistent with max feature of %d", label, weight, problem->n);
+  }
   problem->base[problem->offset].index = label;
   problem->base[problem->offset].value = weight;
   problem->offset++;
