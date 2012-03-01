@@ -15,6 +15,8 @@ Defining a problem from an array of samples
     labels = [1,2,1]
     RubyLinear::Problem.new labels, samples, 1.0, max_feature
     
+Your sample can of course be sparse: you only need to name features with a non-zero associated value
+    
 
 Loading a model from a file
   
