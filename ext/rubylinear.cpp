@@ -369,10 +369,10 @@ static VALUE problem_labels(VALUE self){
   VALUE result = rb_ary_new();
   
   for( int i=0; i< problem -> l; i++){
-    rb_ary_push(result, INT2FIX(problem->y[x]));
+    rb_ary_push(result, INT2FIX(problem->y[i]));
   }
   return result;
-}
+
 }
 
 static VALUE problem_feature_vector(VALUE self, VALUE r_index){

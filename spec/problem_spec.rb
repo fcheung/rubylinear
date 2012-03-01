@@ -32,6 +32,8 @@ describe(RubyLinear::Problem) do
   
     it 'should release associated memory' do
       problem = RubyLinear::Problem.load_file(File.dirname(__FILE__) + '/fixtures/dna.scale.txt', 1)
+      problem.destroyed?.should be_false
+      problem.destroy!
       problem.destroyed?.should be_true
     end
       
@@ -51,7 +53,7 @@ describe(RubyLinear::Problem) do
         problem.l.should == 4
         problem.n.should == 5
         problem.bias.should == -1
-        problem.labels.should = [2,1,2,3]
+        problem.labels.should == [2,1,2,3]
         problem.feature_vector(0).should == [[2,0.1], [3,0.3], [4,-1.2]]
       end
     end
