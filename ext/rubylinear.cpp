@@ -357,6 +357,50 @@ static VALUE problem_new(VALUE klass, VALUE labels, VALUE samples, VALUE bias, V
   return tdata;
 }
 
+static VALUE problem_labels(VALUE self){
+  if(RTEST(rb_funcall(self, rb_intern("destroyed?"),0))){
+    rb_raise(rb_eArgError, "problem has been destroyed");
+    return Qnil;
+  }
+  
+  struct problem *problem;
+  Data_Get_Struct(self, struct problem, problem);
+
+  VALUE result = rb_ary_new();
+  
+  for( int i=0; i< problem -> l; i++){
+    rb_ary_push(result, INT2FIX(problem->y[x]));
+  }
+  return result;
+}
+}
+
+static VALUE problem_feature_vector(VALUE self, VALUE r_index){
+  if(RTEST(rb_funcall(self, rb_intern("destroyed?"),0))){
+    rb_raise(rb_eArgError, "problem has been destroyed");
+    return Qnil;
+  }
+  
+  struct problem *problem;
+  Data_Get_Struct(self, struct problem, problem);
+  
+  int index = FIX2INT(r_index);
+  if(index >= problem->l){
+    rb_raise(rb_eArgError, "index out of bounds");
+    return Qnil;
+  }
+  VALUE result = rb_ary_new();
+  
+  for( struct feature_node *current = problem->x[index];current->index != -1; current++){
+    VALUE pair = rb_ary_new();
+    rb_ary_push(pair, INT2FIX(current->index));
+    rb_ary_push(pair, rb_float_new(current->value));
+    rb_ary_push(result, pair);
+  }
+  return result;
+}
+
+
 static VALUE problem_destroy(VALUE self){  
   struct problem *problem;
   Data_Get_Struct(self, struct problem, problem);
@@ -388,6 +432,13 @@ static VALUE problem_n(VALUE self){
   struct problem *problem;
   Data_Get_Struct(self, struct problem, problem);
   return INT2FIX(problem->n);
+}
+
+
+static VALUE problem_bias(VALUE self){
+  struct problem *problem;
+  Data_Get_Struct(self, struct problem, problem);
+  return rb_float_new(problem->bias);
 }
 
 
@@ -495,6 +546,9 @@ void Init_rubylinear_native() {
   rb_define_method(cProblem, "initialize", RUBY_METHOD_FUNC(problem_init), 4);
   rb_define_method(cProblem, "l", RUBY_METHOD_FUNC(problem_l), 0);
   rb_define_method(cProblem, "n", RUBY_METHOD_FUNC(problem_n), 0);
+  rb_define_method(cProblem, "bias", RUBY_METHOD_FUNC(problem_bias), 0);
+  rb_define_method(cProblem, "feature_vector", RUBY_METHOD_FUNC(problem_feature_vector), 1);
+  rb_define_method(cProblem, "labels", RUBY_METHOD_FUNC(problem_labels), 0);
   rb_define_method(cProblem, "destroy!", RUBY_METHOD_FUNC(problem_destroy), 0);
   rb_define_method(cProblem, "destroyed?", RUBY_METHOD_FUNC(problem_destroyed), 0);
   rb_define_method(cProblem, "inspect", RUBY_METHOD_FUNC(problem_inspect), 0);
