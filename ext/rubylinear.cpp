@@ -460,6 +460,18 @@ static VALUE problem_init(VALUE self, VALUE labels, VALUE samples, VALUE bias, V
   }
   return self;
 }
+
+extern int info_on;
+
+static VALUE info_on_get(VALUE self) {
+  return info_on ? Qtrue:Qfalse;
+}
+
+static VALUE info_on_set(VALUE self, VALUE new_value){
+  info_on = RTEST(new_value) ? 1 : 0;
+  return new_value;
+}
+
 void Init_rubylinear_native() {
   mRubyLinear = rb_define_module("RubyLinear");
   
@@ -471,6 +483,11 @@ void Init_rubylinear_native() {
   rb_define_const(mRubyLinear, "L1R_L2LOSS_SVC", INT2FIX(L1R_L2LOSS_SVC));
   rb_define_const(mRubyLinear, "L1R_LR", INT2FIX(L1R_LR));
   rb_define_const(mRubyLinear, "L2R_LR_DUAL", INT2FIX(L2R_LR_DUAL));
+
+
+  rb_define_singleton_method(mRubyLinear, "info_on", RUBY_METHOD_FUNC(info_on_get), 0);
+  rb_define_singleton_method(mRubyLinear, "info_on=", RUBY_METHOD_FUNC(info_on_set), 1);
+
   
   cProblem = rb_define_class_under(mRubyLinear, "Problem", rb_cObject);
   rb_define_singleton_method(cProblem, "new", RUBY_METHOD_FUNC(problem_new), 4);
