@@ -38,6 +38,11 @@ Your sample can of course be sparse: you only need to name features with a non-z
     sample = {1 => 0.3, 4 => 0.1}
     model.predict(sample)
    
+### Predicting a value and getting back a score for each class
+    sample = {1 => 0.3, 4 => 0.1}
+    winner, scores = model.predict_values(sample)
+    # winner is 1 (ie the sample has class 1)
+    # scores is {1=>0.10716629302903406, 2=>0.0}: class 1 scored 0.107... and  class 2 scored 0
 
 What is this
 ============

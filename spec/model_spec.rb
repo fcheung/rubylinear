@@ -24,6 +24,21 @@ describe(RubyLinear::Model) do
     end
   end
   
+  describe('predict_values') do
+    before(:each) do
+      @model = RubyLinear::Model.load_file(File.dirname(__FILE__) + '/fixtures/dna.dat')
+    end
+    
+    it 'should return the class and a hash of labels to values' do
+      label, values = @model.predict_values(test_vector)
+      
+      label.should == 3
+      values.keys.should =~ [1,2,3]
+      values[3].should be_within(0.001).of(4.178)
+      values[2].should be_within(0.001).of(-8.477)
+      values[1].should be_within(0.001).of(-3.568)
+    end
+  end
   describe('new') do
     let(:problem) {RubyLinear::Problem.load_file(File.dirname(__FILE__) + '/fixtures/dna.scale.txt', 1.0)}
     it 'should train the model from the parameters and the problem' do

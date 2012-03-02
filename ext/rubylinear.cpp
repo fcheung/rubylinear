@@ -130,14 +130,8 @@ static VALUE model_destroyed(VALUE self){
   return model->w ? Qfalse : Qtrue;
 }
 
-static VALUE model_predict(VALUE self, VALUE data){
-  struct model *model;
-  Data_Get_Struct(self, struct model, model);
-  
-  if(!model->w){
-    rb_raise(rb_eArgError, "model has been destroyed");
-    return Qnil;
-  }
+
+struct feature_node * convert_ruby_sample_to_feature_node(struct model * model, VALUE data){
   Check_Type(data, T_HASH);
   VALUE pairs = rb_funcall(data,rb_intern("to_a"),0);
   int node_count = RARRAY_LEN(pairs) + (model->bias > 0 ? 2 : 1);
@@ -160,6 +154,45 @@ static VALUE model_predict(VALUE self, VALUE data){
   /*sentinel value*/
   nodes[position].index = -1;
   nodes[position].value = -1;
+  return nodes;
+}
+
+static VALUE model_predict_values(VALUE self, VALUE data){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  
+  if(!model->w){
+    rb_raise(rb_eArgError, "model has been destroyed");
+    return Qnil;
+  }
+  struct feature_node * nodes = convert_ruby_sample_to_feature_node(model, data);
+
+  double *values = (double*)calloc(sizeof(double), model->nr_class);
+  int label=predict_values(model, nodes, values);
+
+  VALUE label_to_value_hash = rb_hash_new();
+  for(int i = 0; i < model->nr_class; i++){
+    int label = model->label[i];
+    double value = values[i];
+    rb_hash_aset(label_to_value_hash, INT2FIX(label), rb_float_new(value));
+  }
+  free(values);
+  
+  VALUE result = rb_ary_new();
+  rb_ary_push(result, INT2FIX(label));
+  rb_ary_push(result, label_to_value_hash);
+  return result;
+}
+
+static VALUE model_predict(VALUE self, VALUE data){
+  struct model *model;
+  Data_Get_Struct(self, struct model, model);
+  
+  if(!model->w){
+    rb_raise(rb_eArgError, "model has been destroyed");
+    return Qnil;
+  }
+  struct feature_node * nodes = convert_ruby_sample_to_feature_node(model, data);
   int result = predict(model, nodes); 
   free(nodes);
   return INT2FIX(result);
@@ -583,6 +616,7 @@ void Init_rubylinear_native() {
   rb_define_singleton_method(cModel, "new", RUBY_METHOD_FUNC(model_new), 2);
   rb_define_method(cModel, "save", RUBY_METHOD_FUNC(model_write_file), 1);
   rb_define_method(cModel, "predict", RUBY_METHOD_FUNC(model_predict), 1);
+  rb_define_method(cModel, "predict_values", RUBY_METHOD_FUNC(model_predict_values), 1);
   rb_define_method(cModel, "destroy!", RUBY_METHOD_FUNC(model_destroy), 0);
   rb_define_method(cModel, "destroyed?", RUBY_METHOD_FUNC(model_destroyed), 0);
   rb_define_method(cModel, "inspect", RUBY_METHOD_FUNC(model_inspect), 0);
