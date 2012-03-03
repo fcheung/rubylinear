@@ -17,7 +17,7 @@ Gem::Specification.new do |s|
   
   s.license = 'MIT'
   s.has_rdoc = false
-  s.homepage = %q{http://spacevatican.org}
+  s.homepage = %q{http://github.com/fcheung/rubylinear}
   s.require_paths = ["lib"]
   s.rubygems_version = %q{1.8.10}
   s.summary = %q{Ruby wrapper for LIBLINEAR}
