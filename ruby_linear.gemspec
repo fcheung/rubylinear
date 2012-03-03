@@ -5,7 +5,7 @@ Gem::Specification.new do |s|
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Frederick Cheung"]
   s.date = %q{2012-02-29}
-  s.description = %q{Ruby wrapper for LIBLINEAR }
+  s.description = %q{Ruby wrapper for LIBLINEAR, a library for large linear classification }
   s.email = %q{frederick.cheung@gmail.com}
   s.extensions = ["ext/extconf.rb"]
   s.files = ["COPYING", "AUTHORS", "README.markdown", "Rakefile"]
