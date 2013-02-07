@@ -2,5 +2,5 @@ source :rubygems
 gemspec
 
 group(:development) do
-  gem 'rspec', '~>2.8.0'
+  gem 'rspec', '~>2.12.0'
 end

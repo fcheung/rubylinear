@@ -328,7 +328,7 @@ static VALUE problem_load_file(VALUE klass, VALUE path, VALUE bias){
   rewind(fp);
 
 
-  prob->y = (int*)calloc(sizeof(int),prob->l);
+  prob->y = (double*)calloc(sizeof(double),prob->l);
   prob->x = (struct feature_node **)calloc(sizeof(struct feature_node *),prob->l);
   prob->base = (struct feature_node *)calloc(sizeof(struct feature_node),elements + prob->l);
 
@@ -345,7 +345,7 @@ static VALUE problem_load_file(VALUE klass, VALUE path, VALUE bias){
       fclose(fp);
       return Qnil;
     }
-    prob->y[i] = (int) strtol(label,&endptr,10);
+    prob->y[i] = strtod(label,&endptr);
     if(endptr == label || *endptr != '\0'){
       exit_input_error(i+1);
       fclose(fp);
@@ -424,7 +424,7 @@ static VALUE problem_labels(VALUE self){
   VALUE result = rb_ary_new();
   
   for( int i=0; i< problem -> l; i++){
-    rb_ary_push(result, INT2FIX(problem->y[i]));
+    rb_ary_push(result, rb_float_new(problem->y[i]));
   }
   return result;
 
@@ -536,15 +536,16 @@ static VALUE problem_init(VALUE self, VALUE labels, VALUE samples, VALUE bias, V
     return Qnil;
   }
   problem->l = RARRAY_LEN(samples);
-  problem->y = (int*)calloc(sizeof(int), problem->l);
+  problem->y = (double*)calloc(sizeof(double), problem->l);
 
   
   /* copy the y values  and calculate how many samples to allocate*/
   int required_feature_nodes = 0;
   int extra_samples = problem->bias > 0 ? 2 : 1; /*always 1 (the sentinel element, and possibly +1 for bias)*/
   for(int i=0; i<problem->l; i++){
+    VALUE label = RARRAY_PTR(labels)[i];
     VALUE hash = RARRAY_PTR(samples)[i];
-    problem->y[i] = FIX2INT(RARRAY_PTR(labels)[i]);
+    problem->y[i] = NUM2DBL(label);
     required_feature_nodes += RHASH_SIZE(hash) + extra_samples; 
   }
   
